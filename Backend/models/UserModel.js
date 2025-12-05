@@ -36,6 +36,9 @@ const userSchema = new mongoose.Schema(
     googleId: {
       type: String,
     },
+    avatar: {
+      type: String,
+    },
   },
   {
     timestamps: true,

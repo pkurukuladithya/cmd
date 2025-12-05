@@ -1,6 +1,13 @@
-﻿import { type FormEvent, useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import * as authService from './services/authService';
 import type { User } from './types';
+
+type PendingGoogle = {
+  email: string;
+  name?: string;
+  avatar?: string;
+  googleId: string;
+};
 
 const navItems = [
   { label: 'Home', target: 'home' },
@@ -25,20 +32,24 @@ const sectionCopy: Record<string, { title: string; body: string }> = {
 };
 
 function App() {
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('register');
-  const [authForm, setAuthForm] = useState({ name: '', email: '', password: '' });
+  const [user, setUser] = useState<User | null>(null);
+  const [activeNav, setActiveNav] = useState<string>('home');
+  const [pendingGoogle, setPendingGoogle] = useState<PendingGoogle | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSuccess, setAuthSuccess] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
-  const [activeNav, setActiveNav] = useState<string>('home');
 
-  // Handle Google redirect token, if present
+  // Handle Google redirect token and pending signup
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     const googleToken = params.get('token');
-    const name = params.get('name');
+    const name = params.get('name') || undefined;
+    const email = params.get('email') || undefined;
+    const avatar = params.get('avatar') || undefined;
+    const googleId = params.get('googleId') || undefined;
+    const newUser = params.get('newUser');
+
     if (googleToken) {
       localStorage.setItem('authToken', googleToken);
       setAuthSuccess('Signed in with Google');
@@ -46,11 +57,23 @@ function App() {
       params.delete('token');
       params.delete('email');
       params.delete('name');
+      params.delete('avatar');
+      params.delete('googleId');
+      params.delete('newUser');
       const newQuery = params.toString();
       const newUrl = `${window.location.pathname}${newQuery ? `?${newQuery}` : ''}`;
       window.history.replaceState({}, '', newUrl);
       void hydrateProfile();
-      if (name) setAuthForm((f) => ({ ...f, name }));
+    } else if (newUser === 'true' && email && googleId) {
+      setPendingGoogle({ email, name, avatar, googleId });
+      params.delete('newUser');
+      params.delete('email');
+      params.delete('name');
+      params.delete('avatar');
+      params.delete('googleId');
+      const newQuery = params.toString();
+      const newUrl = `${window.location.pathname}${newQuery ? `?${newQuery}` : ''}`;
+      window.history.replaceState({}, '', newUrl);
     }
   }, []);
 
@@ -93,36 +116,6 @@ function App() {
     return () => observer.disconnect();
   }, []);
 
-  const handleAuthSubmit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setAuthError(null);
-    setAuthSuccess(null);
-    setIsSubmitting(true);
-    try {
-      if (authMode === 'register') {
-        const { token, user: newUser } = await authService.register(
-          authForm.name,
-          authForm.email,
-          authForm.password
-        );
-        localStorage.setItem('authToken', token);
-        setUser(newUser);
-        setAuthSuccess('Account created. Welcome to CMD Chemistry!');
-      } else {
-        const { token, user: newUser } = await authService.login(authForm.email, authForm.password);
-        localStorage.setItem('authToken', token);
-        setUser(newUser);
-        setAuthSuccess('Signed in successfully.');
-      }
-      setAuthForm({ name: '', email: '', password: '' });
-    } catch (error: any) {
-      const message = error?.response?.data?.message || 'Authentication failed';
-      setAuthError(message);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   const handleGoogleSignIn = async () => {
     try {
       const url = await authService.getGoogleAuthUrl();
@@ -132,9 +125,31 @@ function App() {
     }
   };
 
+  const completeGoogleSignup = async () => {
+    if (!pendingGoogle) return;
+    setIsSubmitting(true);
+    setAuthError(null);
+    try {
+      const { token, user: newUser } = await authService.completeGoogleSignup({
+        ...pendingGoogle,
+        name: pendingGoogle.name ?? 'New CMD Learner',
+      });
+      localStorage.setItem('authToken', token);
+      setUser(newUser);
+      setPendingGoogle(null);
+      setAuthSuccess('Account created. Welcome to CMD Chemistry!');
+    } catch (error: any) {
+      const message = error?.response?.data?.message || 'Failed to complete Google signup';
+      setAuthError(message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleLogout = () => {
     localStorage.removeItem('authToken');
     setUser(null);
+    setPendingGoogle(null);
   };
 
   const navLinks = useMemo(
@@ -169,6 +184,13 @@ function App() {
             <div className="flex items-center gap-3">
               {user ? (
                 <>
+                  {user.avatar && (
+                    <img
+                      src={user.avatar}
+                      alt={user.name}
+                      className="h-9 w-9 rounded-full border border-slate-700 object-cover"
+                    />
+                  )}
                   <span className="text-sm text-slate-300">Hi, {user.name}</span>
                   <button
                     onClick={handleLogout}
@@ -179,7 +201,7 @@ function App() {
                 </>
               ) : (
                 <button
-                  onClick={() => scrollToSection('auth')}
+                  onClick={handleGoogleSignIn}
                   className="px-5 py-2 rounded-lg bg-blue-500 hover:bg-blue-400 text-sm font-semibold transition shadow-lg shadow-blue-500/20"
                 >
                   Sign up
@@ -201,109 +223,90 @@ function App() {
                 Fast onboarding, Google-first sign up, and a clean flow through Home, Assignments, Classes, and About.
                 Scroll smoothly or jump via the nav to preview each area.
               </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => scrollToSection('auth')}
-                  className="px-5 py-3 rounded-lg bg-blue-500 hover:bg-blue-400 text-white font-semibold transition shadow-lg shadow-blue-500/20"
-                >
-                  Get started
-                </button>
-                <button
-                  onClick={() => scrollToSection('assignments')}
-                  className="px-5 py-3 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white transition"
-                >
-                  View sections
-                </button>
-              </div>
+              {user ? (
+                <div className="flex items-center gap-3 bg-slate-900/60 border border-slate-800 rounded-xl px-4 py-3">
+                  {user.avatar && (
+                    <img src={user.avatar} alt={user.name} className="h-12 w-12 rounded-full object-cover" />
+                  )}
+                  <div>
+                    <p className="text-sm text-slate-300">Welcome back</p>
+                    <p className="text-xl font-semibold">{user.name}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleGoogleSignIn}
+                    className="px-5 py-3 rounded-lg bg-blue-500 hover:bg-blue-400 text-white font-semibold transition shadow-lg shadow-blue-500/20"
+                  >
+                    Get started
+                  </button>
+                  <button
+                    onClick={() => scrollToSection('assignments')}
+                    className="px-5 py-3 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white transition"
+                  >
+                    View sections
+                  </button>
+                </div>
+              )}
             </div>
             <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-2xl shadow-blue-900/30">
-              <p className="text-sm text-blue-300 uppercase tracking-[0.3em] mb-3">Auth</p>
-              <div className="flex gap-2 mb-4">
-                <button
-                  className={`flex-1 py-2 rounded-lg transition ${
-                    authMode === 'login' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300'
-                  }`}
-                  onClick={() => setAuthMode('login')}
-                >
-                  Login
-                </button>
-                <button
-                  className={`flex-1 py-2 rounded-lg transition ${
-                    authMode === 'register' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300'
-                  }`}
-                  onClick={() => setAuthMode('register')}
-                >
-                  Register
-                </button>
-              </div>
-              <form onSubmit={handleAuthSubmit} className="space-y-4" id="auth">
-                {authMode === 'register' && (
-                  <div>
-                    <label className="text-sm text-slate-300">Full name</label>
-                    <input
-                      type="text"
-                      value={authForm.name}
-                      onChange={(e) => setAuthForm((f) => ({ ...f, name: e.target.value }))}
-                      className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                      placeholder="Alex Rivers"
-                      required
-                    />
-                  </div>
-                )}
-                <div>
-                  <label className="text-sm text-slate-300">Email</label>
-                  <input
-                    type="email"
-                    value={authForm.email}
-                    onChange={(e) => setAuthForm((f) => ({ ...f, email: e.target.value }))}
-                    className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                    placeholder="you@example.com"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="text-sm text-slate-300">Password</label>
-                  <input
-                    type="password"
-                    value={authForm.password}
-                    onChange={(e) => setAuthForm((f) => ({ ...f, password: e.target.value }))}
-                    className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-600"
-                    placeholder="Minimum 6 characters"
-                    required
-                  />
-                </div>
-                {authError && <p className="text-red-300 text-sm">{authError}</p>}
-                {authSuccess && <p className="text-emerald-300 text-sm">{authSuccess}</p>}
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="w-full py-3 rounded-lg bg-blue-500 hover:bg-blue-400 transition text-white font-semibold disabled:opacity-70"
-                >
-                  {isSubmitting
-                    ? authMode === 'login'
-                      ? 'Signing in...'
-                      : 'Creating account...'
-                    : authMode === 'login'
-                    ? 'Login'
-                    : 'Register'}
-                </button>
-              </form>
-              <div className="my-6 flex items-center gap-3">
-                <div className="h-px flex-1 bg-slate-800" />
-                <span className="text-xs text-slate-400 uppercase tracking-[0.2em]">or</span>
-                <div className="h-px flex-1 bg-slate-800" />
-              </div>
+              <p className="text-sm text-blue-300 uppercase tracking-[0.3em] mb-3">Google Sign up</p>
+              <p className="text-slate-300 mb-4">
+                Sign up with Google. We check if your email exists; if yes, you land on your welcome page. If not, we
+                prompt you to finish signup.
+              </p>
               <button
                 onClick={handleGoogleSignIn}
                 className="w-full py-3 rounded-lg bg-white text-slate-900 font-semibold hover:-translate-y-0.5 transition shadow-lg shadow-white/10"
               >
                 Continue with Google
               </button>
-              <p className="text-xs text-slate-400 mt-2">
-                Google Auth signs you in and redirects back here automatically.
-              </p>
+              {authError && <p className="text-red-300 text-sm mt-3">{authError}</p>}
+              {authSuccess && <p className="text-emerald-300 text-sm mt-3">{authSuccess}</p>}
             </div>
           </section>
+
+          {pendingGoogle && !user && (
+            <section
+              id="auth"
+              className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6 flex flex-col gap-4"
+            >
+              <div className="flex items-center gap-3">
+                {pendingGoogle.avatar && (
+                  <img
+                    src={pendingGoogle.avatar}
+                    alt={pendingGoogle.name || pendingGoogle.email}
+                    className="h-12 w-12 rounded-full object-cover"
+                  />
+                )}
+                <div>
+                  <p className="text-sm text-slate-300">Complete Google signup</p>
+                  <p className="text-lg font-semibold text-white">{pendingGoogle.name || 'New user'}</p>
+                  <p className="text-slate-400 text-sm">{pendingGoogle.email}</p>
+                </div>
+              </div>
+              <p className="text-slate-300">
+                We didn&apos;t find this email in CMD yet. Confirm to create your account and continue.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={completeGoogleSignup}
+                  disabled={isSubmitting}
+                  className="px-5 py-3 rounded-lg bg-blue-500 hover:bg-blue-400 text-white font-semibold transition disabled:opacity-70"
+                >
+                  {isSubmitting ? 'Creating...' : 'Complete signup'}
+                </button>
+                <button
+                  onClick={() => setPendingGoogle(null)}
+                  className="px-5 py-3 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 text-white"
+                >
+                  Cancel
+                </button>
+              </div>
+              {authError && <p className="text-red-300 text-sm">{authError}</p>}
+            </section>
+          )}
 
           <section
             id="assignments"

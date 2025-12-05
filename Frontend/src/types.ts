@@ -12,6 +12,7 @@ export type User = {
   email: string;
   role: 'admin' | 'user';
   provider: 'local' | 'google';
+  avatar?: string;
   createdAt?: string;
   updatedAt?: string;
 };

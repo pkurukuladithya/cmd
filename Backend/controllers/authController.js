@@ -24,7 +24,7 @@ const generateToken = (user) =>
 
 export const registerUser = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, avatar } = req.body;
     if (!name || !email || !password) {
       return res.status(400).json({ message: 'Name, email, and password are required' });
     }
@@ -39,6 +39,7 @@ export const registerUser = async (req, res) => {
       email,
       password,
       provider: 'local',
+      avatar,
     });
 
     const token = generateToken(user);
@@ -50,6 +51,7 @@ export const registerUser = async (req, res) => {
         email: user.email,
         role: user.role,
         provider: user.provider,
+        avatar: user.avatar,
       },
     });
   } catch (error) {
@@ -84,6 +86,7 @@ export const loginUser = async (req, res) => {
         email: user.email,
         role: user.role,
         provider: user.provider,
+        avatar: user.avatar,
       },
     });
   } catch (error) {
@@ -135,30 +138,70 @@ export const handleGoogleCallback = async (req, res) => {
       $or: [{ googleId: googleUser.id }, { email: googleUser.email }],
     });
 
-    let user = existingUser;
-    if (user) {
-      user.googleId = user.googleId || googleUser.id;
-      user.provider = 'google';
-      await user.save();
-    } else {
-      user = await User.create({
-        name: googleUser.name || googleUser.email,
-        email: googleUser.email,
-        googleId: googleUser.id,
-        provider: 'google',
-        role: 'user',
-      });
+    const redirectUrl = new URL(FRONTEND_URL);
+
+    if (existingUser) {
+      existingUser.googleId = existingUser.googleId || googleUser.id;
+      existingUser.provider = 'google';
+      existingUser.avatar = googleUser.picture || existingUser.avatar;
+      await existingUser.save();
+
+      const token = generateToken(existingUser);
+      redirectUrl.searchParams.set('token', token);
+      redirectUrl.searchParams.set('email', existingUser.email);
+      redirectUrl.searchParams.set('name', existingUser.name);
+      if (existingUser.avatar) redirectUrl.searchParams.set('avatar', existingUser.avatar);
+      return res.redirect(redirectUrl.toString());
     }
 
-    const token = generateToken(user);
-    const redirectUrl = new URL(FRONTEND_URL);
-    redirectUrl.searchParams.set('token', token);
-    redirectUrl.searchParams.set('email', user.email);
-    redirectUrl.searchParams.set('name', user.name);
-
+    redirectUrl.searchParams.set('newUser', 'true');
+    redirectUrl.searchParams.set('email', googleUser.email);
+    if (googleUser.name) redirectUrl.searchParams.set('name', googleUser.name);
+    if (googleUser.picture) redirectUrl.searchParams.set('avatar', googleUser.picture);
+    redirectUrl.searchParams.set('googleId', googleUser.id);
     return res.redirect(redirectUrl.toString());
   } catch (error) {
     return res.status(500).json({ message: error.message });
+  }
+};
+
+export const completeGoogleSignup = async (req, res) => {
+  try {
+    const { googleId, email, name, avatar } = req.body;
+    if (!googleId || !email || !name) {
+      return res.status(400).json({ message: 'googleId, name, and email are required' });
+    }
+
+    const existingUser = await User.findOne({
+      $or: [{ googleId }, { email }],
+    });
+    if (existingUser) {
+      return res.status(400).json({ message: 'User already exists, please sign in instead.' });
+    }
+
+    const user = await User.create({
+      name,
+      email,
+      googleId,
+      provider: 'google',
+      role: 'user',
+      avatar,
+    });
+
+    const token = generateToken(user);
+    res.status(201).json({
+      token,
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        provider: user.provider,
+        avatar: user.avatar,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
   }
 };
 

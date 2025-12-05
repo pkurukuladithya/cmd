@@ -20,3 +20,13 @@ export const getGoogleAuthUrl = async (): Promise<string> => {
   const response = await apiClient.get<{ url: string }>('/api/auth/google/url');
   return response.data.url;
 };
+
+export const completeGoogleSignup = async (payload: {
+  googleId: string;
+  email: string;
+  name: string;
+  avatar?: string;
+}): Promise<AuthResponse> => {
+  const response = await apiClient.post<AuthResponse>('/api/auth/google/complete', payload);
+  return response.data;
+};
