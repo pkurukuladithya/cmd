@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Google Login Demo</title>
+
+  <!-- Tailwind via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Google Identity Services -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body class="min-h-screen flex items-center justify-center bg-slate-900">
+
+  <div class="bg-slate-800 text-white rounded-xl shadow-lg p-8 w-full max-w-md text-center">
+    <h1 class="text-2xl font-bold mb-4">Google Login Demo</h1>
+    <p class="mb-6 text-slate-300">
+      Click the button below to sign in with your Google account.
+    </p>
+
+    <!-- Google Sign-In -->
+    <div id="g_id_onload"
+         data-client_id="263458262056-276f49f77d1psg4tgt9pihjapg4kk7gl.apps.googleusercontent.com"
+         data-callback="handleCredentialResponse"
+         data-auto_prompt="false">
+    </div>
+
+    <div class="g_id_signin"
+         data-type="standard"
+         data-size="large"
+         data-theme="outline"
+         data-text="continue_with"
+         data-shape="rectangular"
+         data-logo_alignment="left">
+    </div>
+
+    <!-- Area to display user info -->
+    <div id="userInfo" class="mt-6 hidden">
+      <h2 class="text-xl font-semibold mb-2">User Info</h2>
+      <img id="userPicture" class="w-16 h-16 rounded-full mx-auto mb-2" />
+      <p id="userName" class="text-lg"></p>
+      <p id="userEmail" class="text-slate-300 text-sm"></p>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
